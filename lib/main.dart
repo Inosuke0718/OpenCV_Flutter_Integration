@@ -1,115 +1,135 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ffi';
+import 'package:ffi/ffi.dart';
+import 'package:file_picker/file_picker.dart'; // 追加プラグインの指定
+import 'package:path_provider/path_provider.dart'; // 追加プラグインの指定
 
+/*
+main関数: アプリケーションのエントリーポイントで、MyHomePageをルートウィジェットとして設定しています。
+*/
 void main() {
-  runApp(const MyApp());
+  runApp(const MaterialApp(
+    home: MyHomePage(),
+  ));
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  // This widget is the root of your application.
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // Try running your application with "flutter run". You'll see the
-        // application has a blue toolbar. Then, without quitting the app, try
-        // changing the primarySwatch below to Colors.green and then invoke
-        // "hot reload" (press "r" in the console where you ran "flutter run",
-        // or simply save your changes to "hot reload" in a Flutter IDE).
-        // Notice that the counter didn't reset back to zero; the application
-        // is not restarted.
-        primarySwatch: Colors.blue,
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
-    );
-  }
-}
-
+/*
+MyHomePageクラス: StatefulWidgetを継承し、アプリの状態を管理します。createStateメソッドで状態オ
+ブジェクトを⽣成します。
+*/
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
+  const MyHomePage({super.key});
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
+/*
+_MyHomePageStateクラス: アプリの状態を管理するStateクラスです。いくつかの変数が定義されており、画像
+ファイルのパスや画像ウィジェット、ライブラリ関数などを保持しています。
+*/
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  String imagefile = ""; // AppBarタイトル
+  Image? img; // 画像表⽰Widget
+  late String _outpath;
+  late DynamicLibrary dylib;
+  late Function rotimage;
+/*
+initStateメソッド: Stateオブジェクトの初期化時に呼ばれるメソッドで、プラットフォームがAndroidか
+Windowsかによってオープンする共有ライブラリのファイル名を切り分けています。共有ライブラリをオープンして⽣成された
+dylibオブジェクトから、RotImgという関数をロードしています。
+*/
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isAndroid) {
+      dylib = DynamicLibrary.open("libOpenCV_ffi.so");
+    } else
+      20;
+    if (Platform.isWindows) {
+      dylib = DynamicLibrary.open("OpenCVProc.dll");
+    } else if (Platform.isLinux) {
+      dylib = DynamicLibrary.open("/home/pie/libOpenCV_ffi.so");
+    }
+    rotimage = dylib.lookupFunction<
+        Void Function(Pointer<Utf8>, Pointer<Utf8>, Int32),
+        void Function(Pointer<Utf8>, Pointer<Utf8>, int)>("RotImg");
   }
 
+/*
+didChangeDependenciesメソッド: ウィジェットの依存関係が変更されたときに呼ばれるメソッドで、⼀時ディレク
+トリのパスを取得し、出⼒ファイルのパスを設定しています。
+*/
+  @override
+  void didChangeDependencies() async {
+    super.didChangeDependencies();
+    final directory = await getTemporaryDirectory();
+    _outpath = "${directory.path}/output.jpg";
+  }
+
+/*
+_loadImageメソッド: 非同期でファイル選択ダイアログを開き、画像ファイルを選択して読み込むメソッドです。選択
+した画像ファイルのパスをimagefileにセットし、画像ウィジェットにセットしています。
+*/
+  void _loadImage() async {
+    var res = await FilePicker.platform.pickFiles(); // ファイル選択ダイアログ
+    if (res != null) {
+      setState(() {
+        // 状態変化を通知するメソッド
+        imagefile = res.files[0].path ?? ""; // AppBarタイトルにファイル名セット
+        img = Image.file(File(imagefile)); // Image Widgetに画像セット
+      });
+    }
+  }
+
+/*
+_rotateImageメソッド: 非同期で画像を回転させるメソッドです。rotimage関数を使って画像ファイルを回転さ
+せ、出⼒ファイルに保存します。その後、出⼒ファイルを読み込んで画像ウィジェットにセットしています。
+*/
+  void _rotateImage() async {
+    final outpathPointer = _outpath.toNativeUtf8();
+    final inpathPointer = imagefile.toNativeUtf8();
+    rotimage(inpathPointer, outpathPointer, 0);
+    Uint8List imageData = File(_outpath).readAsBytesSync();
+    img = Image.memory(imageData);
+    imagefile = _outpath;
+
+    setState(() {});
+  }
+
+/*
+21
+buildメソッド: ウィジェットの階層構造を定義するメソッドで、アプリケーションのUIを構築しています。AppBarには
+画像ファイル名が表⽰され、回転ボタンと画像選択ボタンが配置されています。また、画像は中央に表⽰され、画像が
+選択されていない場合は「no image」というテキストが表⽰されます。
+*/
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
+    //Scaffold: 基本的なマテリアルデザインのビジュアルレイアウト構造を提供します。
     return Scaffold(
+      //AppBar: アプリケーションの上部に表⽰されるバーで、画像ファイル名が表⽰されます。
+      //また、回転ボタンと画像選択ボタンが配置されています。これらのボタンは、
+      //それぞれ_rotateImageメソッドと_loadImageメソッドを呼び出すために使⽤されます。
       appBar: AppBar(
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        backgroundColor: Colors.blue,
+        title: Text(imagefile),
+        actions: [
+          // ここに並べたボタンWidgetがAppBarに並ぶ
+          IconButton(
+              onPressed: _rotateImage, icon: const Icon(Icons.rotate_right)),
+          IconButton(onPressed: _loadImage, icon: const Icon(Icons.image))
+        ],
       ),
+      //body: アプリケーションの主要なコンテンツ領域で、画像ウィジェット（img）が配置されています。
+      //imgは、画像ファイルが選択されている場合に画像を表⽰し、選択されていない場合には「no image」
+      //というテキストが表⽰されます。
       body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug painting" (press "p" in the console, choose the
-          // "Toggle Debug Paint" action from the Flutter Inspector in Android
-          // Studio, or the "Toggle Debug Paint" command in Visual Studio Code)
-          // to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
+        child: img ??
             const Text(
-              'You have pushed the button this many times:',
+              'no image',
             ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
-        ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
