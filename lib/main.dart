@@ -1,135 +1,258 @@
-import 'package:flutter/material.dart';
 import 'dart:io';
-import 'dart:typed_data';
+import 'dart:isolate';
+import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'dart:ffi';
 import 'package:ffi/ffi.dart';
-import 'package:file_picker/file_picker.dart'; // 追加プラグインの指定
-import 'package:path_provider/path_provider.dart'; // 追加プラグインの指定
+import 'package:permission_handler/permission_handler.dart';
 
-/*
-main関数: アプリケーションのエントリーポイントで、MyHomePageをルートウィジェットとして設定しています。
-*/
 void main() {
-  runApp(const MaterialApp(
-    home: MyHomePage(),
-  ));
+  runApp(const MyApp());
 }
 
-/*
-MyHomePageクラス: StatefulWidgetを継承し、アプリの状態を管理します。createStateメソッドで状態オ
-ブジェクトを⽣成します。
-*/
+class MyApp extends StatelessWidget {
+  const MyApp({Key? key}) : super(key: key);
+  // This widget is the root of your application.
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Image Batch',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: const MyHomePage(title: 'Image Batch'),
+    );
+  }
+}
+
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key});
+  const MyHomePage({Key? key, required this.title}) : super(key: key);
+  final String title;
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
 /*
-_MyHomePageStateクラス: アプリの状態を管理するStateクラスです。いくつかの変数が定義されており、画像
-ファイルのパスや画像ウィジェット、ライブラリ関数などを保持しています。
+画像変換処理のパラメータを格納するクラスです。SendPort、srcdir(ソースディレクトリ)、dstdir(出⼒ディレクト
+リ)、rotangl(回転⾓度)が含まれます。
 */
+class TransCmd {
+  SendPort? sendport;
+  String? srcdir;
+  String? dstdir;
+  int rotangl;
+
+  TransCmd(this.sendport, this.srcdir, this.dstdir, this.rotangl);
+}
+
 class _MyHomePageState extends State<MyHomePage> {
-  String imagefile = ""; // AppBarタイトル
-  Image? img; // 画像表⽰Widget
-  late String _outpath;
-  late DynamicLibrary dylib;
-  late Function rotimage;
+  String srcdir = "";
+  String dstdir = "";
+  int rotangle = 0;
+  String transmsg = "";
 /*
-initStateメソッド: Stateオブジェクトの初期化時に呼ばれるメソッドで、プラットフォームがAndroidか
-Windowsかによってオープンする共有ライブラリのファイル名を切り分けています。共有ライブラリをオープンして⽣成された
-dylibオブジェクトから、RotImgという関数をロードしています。
+画像変換処理を⾏う関数です。TransCmdオブジェクトを引数に取り、srcdirからdstdirへの画像変換を⾏いま
+す。
+この関数は、dart:ffiを経由してC/C++関数であるRotImgを呼び出します。
+これにより、画像が指定された⾓度で回転されます。
 */
-  @override
-  void initState() {
-    super.initState();
+  static void isoTrans(TransCmd cmd) {
+    String srcdir = cmd.srcdir ?? "";
+    String dstdir = cmd.dstdir ?? "";
+    DynamicLibrary dylib;
     if (Platform.isAndroid) {
       dylib = DynamicLibrary.open("libOpenCV_ffi.so");
-    } else
-      20;
-    if (Platform.isWindows) {
+    } else if (Platform.isWindows) {
       dylib = DynamicLibrary.open("OpenCVProc.dll");
-    } else if (Platform.isLinux) {
+    } else {
       dylib = DynamicLibrary.open("/home/pie/libOpenCV_ffi.so");
     }
-    rotimage = dylib.lookupFunction<
+    Function rotImg = dylib.lookupFunction<
         Void Function(Pointer<Utf8>, Pointer<Utf8>, Int32),
         void Function(Pointer<Utf8>, Pointer<Utf8>, int)>("RotImg");
-  }
-
-/*
-didChangeDependenciesメソッド: ウィジェットの依存関係が変更されたときに呼ばれるメソッドで、⼀時ディレク
-トリのパスを取得し、出⼒ファイルのパスを設定しています。
-*/
-  @override
-  void didChangeDependencies() async {
-    super.didChangeDependencies();
-    final directory = await getTemporaryDirectory();
-    _outpath = "${directory.path}/output.jpg";
-  }
-
-/*
-_loadImageメソッド: 非同期でファイル選択ダイアログを開き、画像ファイルを選択して読み込むメソッドです。選択
-した画像ファイルのパスをimagefileにセットし、画像ウィジェットにセットしています。
-*/
-  void _loadImage() async {
-    var res = await FilePicker.platform.pickFiles(); // ファイル選択ダイアログ
-    if (res != null) {
-      setState(() {
-        // 状態変化を通知するメソッド
-        imagefile = res.files[0].path ?? ""; // AppBarタイトルにファイル名セット
-        img = Image.file(File(imagefile)); // Image Widgetに画像セット
-      });
+    try {
+      List<FileSystemEntity> plist = Directory(srcdir).listSync();
+      plist.sort((a, b) => a.path.compareTo(b.path));
+      int count = 0;
+      for (var p in plist) {
+        cmd.sendport?.send("${++count} / ${plist.length}");
+        final outPath = "$dstdir${p.path.substring(srcdir.length)}"
+            .toNativeUtf8()
+            .cast<Uint8>();
+        final inPath = p.path.toNativeUtf8().cast<Uint8>();
+        rotImg(inPath, outPath, cmd.rotangl);
+      }
+    } catch (e) {
+      cmd.sendport?.send(e.toString());
     }
+    cmd.sendport?.send("end");
   }
 
 /*
-_rotateImageメソッド: 非同期で画像を回転させるメソッドです。rotimage関数を使って画像ファイルを回転さ
-せ、出⼒ファイルに保存します。その後、出⼒ファイルを読み込んで画像ウィジェットにセットしています。
+isoTrans関数を新しいIsolateで実⾏し、画像変換処理を実⾏します。
+ReceivePortを使って、メインIsolateと新しいIsolate間の通信を⾏います。
 */
-  void _rotateImage() async {
-    final outpathPointer = _outpath.toNativeUtf8();
-    final inpathPointer = imagefile.toNativeUtf8();
-    rotimage(inpathPointer, outpathPointer, 0);
-    Uint8List imageData = File(_outpath).readAsBytesSync();
-    img = Image.memory(imageData);
-    imagefile = _outpath;
-
-    setState(() {});
+  void trans() {
+    final ReceivePort receivePort = ReceivePort();
+    // 通信側からのコールバック
+    receivePort.listen((message) {
+      if (message == "end") {
+        receivePort.close();
+      }
+      setState(() {
+        transmsg = message;
+      });
+    });
+    Isolate.spawn(
+        isoTrans, TransCmd(receivePort.sendPort, srcdir, dstdir, rotangle));
   }
 
-/*
-21
-buildメソッド: ウィジェットの階層構造を定義するメソッドで、アプリケーションのUIを構築しています。AppBarには
-画像ファイル名が表⽰され、回転ボタンと画像選択ボタンが配置されています。また、画像は中央に表⽰され、画像が
-選択されていない場合は「no image」というテキストが表⽰されます。
-*/
   @override
   Widget build(BuildContext context) {
-    //Scaffold: 基本的なマテリアルデザインのビジュアルレイアウト構造を提供します。
-    return Scaffold(
-      //AppBar: アプリケーションの上部に表⽰されるバーで、画像ファイル名が表⽰されます。
-      //また、回転ボタンと画像選択ボタンが配置されています。これらのボタンは、
-      //それぞれ_rotateImageメソッドと_loadImageメソッドを呼び出すために使⽤されます。
-      appBar: AppBar(
-        backgroundColor: Colors.blue,
-        title: Text(imagefile),
-        actions: [
-          // ここに並べたボタンWidgetがAppBarに並ぶ
-          IconButton(
-              onPressed: _rotateImage, icon: const Icon(Icons.rotate_right)),
-          IconButton(onPressed: _loadImage, icon: const Icon(Icons.image))
-        ],
-      ),
-      //body: アプリケーションの主要なコンテンツ領域で、画像ウィジェット（img）が配置されています。
-      //imgは、画像ファイルが選択されている場合に画像を表⽰し、選択されていない場合には「no image」
-      //というテキストが表⽰されます。
-      body: Center(
-        child: img ??
-            const Text(
-              'no image',
+/*
+dirsetting: カラムウィジェットで、アプリケーションのメインコンテンツが含まれます。
+以下の要素が含まれています。
+ transmsg: 画像変換処理の進⾏状況を表⽰するテキストウィジェットです。
+ ソースディレクトリと出⼒ディレクトリを選択するための2つのボタンがあります。
+ ボタンを押すと、FilePickerを使⽤してディレクトリを選択できます。
+ 回転⾓度を選択するための4つのラジオボタンがあります。0°、90°、180°、270°の⾓度を選択できます。
+*/
+    var dirsetting = Column(
+      mainAxisAlignment: MainAxisAlignment.start,
+      children: [
+        Text(
+          "$transmsg",
+          style: Theme.of(context).textTheme.bodyLarge,
+        ),
+        const Text(' '),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.start,
+          children: [
+            const Text(' '),
+            TextButton(
+              onPressed: () async {
+                var res = await FilePicker.platform.getDirectoryPath();
+                setState(() {
+                  srcdir = res ?? "";
+                });
+              },
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.orange,
+              ),
+              child: const Text("src"),
             ),
-      ),
+            Text(
+              ' $srcdir',
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
+          ],
+        ),
+        const Text(' '),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.start,
+          children: [
+            const Text(' '),
+            TextButton(
+              onPressed: () async {
+                var res = await FilePicker.platform.getDirectoryPath();
+                setState(() {
+                  dstdir = res ?? "";
+                });
+              },
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.orange,
+              ),
+              child: const Text("dst"),
+            ),
+            Text(
+              ' $dstdir',
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
+          ],
+        ),
+        const Divider(
+          height: 20,
+          thickness: 2,
+          indent: 20,
+          endIndent: 10,
+          color: Colors.blue,
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.start,
+          children: [
+            const Text(' rotate angle '),
+            Radio(
+              activeColor: const Color.fromRGBO(33, 150, 243, 1),
+              value: 3,
+              groupValue: rotangle,
+              onChanged: (v) {
+                setState(() {
+                  rotangle = 3;
+                });
+              },
+            ),
+            const Text('0'),
+            Radio(
+              activeColor: Colors.blue,
+              value: 0,
+              groupValue: rotangle,
+              onChanged: (v) {
+                setState(() {
+                  rotangle = 0;
+                });
+              },
+            ),
+            const Text('→90'),
+            Radio(
+              activeColor: Colors.blue,
+              value: 1,
+              groupValue: rotangle,
+              onChanged: (v) {
+                setState(() {
+                  rotangle = 1;
+                });
+              },
+            ),
+            const Text('↓180'),
+            Radio(
+              activeColor: Colors.blue,
+              value: 2,
+              groupValue: rotangle,
+              onChanged: (v) {
+                setState(() {
+                  rotangle = 2;
+                });
+              },
+            ),
+            const Text('←270'),
+          ],
+        ),
+      ],
     );
+    return Scaffold(
+        appBar: AppBar(
+          title: Text(widget.title),
+          actions: [
+            // GOボタンを押すと、trans()メソッドが呼び出され、画像変換処理が開始されます。
+            IconButton(
+                onPressed: () {
+                  // 多分不要
+                  // requestStoragePermission();
+                  trans();
+                },
+                icon: const Icon(Icons.run_circle)),
+            const Text("GO"),
+          ],
+        ),
+        //body: bodylayout,
+        body: dirsetting);
+  }
+
+  // 多分不要
+  Future<void> requestStoragePermission() async {
+    var status = await Permission.storage.status;
+    if (!status.isGranted) {
+      await Permission.storage.request();
+    }
   }
 }
