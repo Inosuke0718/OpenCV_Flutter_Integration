@@ -59,6 +59,7 @@ class _MyHomePageState extends State<MyHomePage> {
   static void isoTrans(TransCmd cmd) {
     String srcdir = cmd.srcdir ?? "";
     String dstdir = cmd.dstdir ?? "";
+    // ネイティブのライブラリをロードして Dart からアクセスするためのもの
     DynamicLibrary dylib;
     if (Platform.isAndroid) {
       dylib = DynamicLibrary.open("libOpenCV_ffi.so");
