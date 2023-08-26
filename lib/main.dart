@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'dart:ffi';
 import 'package:ffi/ffi.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:surf_detect/controller/camera_controller.dart';
 
 void main() {
   runApp(const MyApp());
@@ -242,7 +243,16 @@ dirsetting: カラムウィジェットで、アプリケーションのメイ�
                   trans();
                 },
                 icon: const Icon(Icons.run_circle)),
-            const Text("GO"),
+            // const Text("GO"),
+            IconButton(
+                onPressed: () {
+                  // 多分不要
+                  // requestStoragePermission();
+                  Navigator.of(context).push(
+                      MaterialPageRoute(builder: (context) => CameraScreen()));
+                },
+                icon: const Icon(Icons.camera)),
+            // const Text("Camera"),
           ],
         ),
         //body: bodylayout,
