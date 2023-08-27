@@ -8,7 +8,7 @@ void RotImg(char* inpath, char* outpath, int angle)
     if (img.empty()) {
         return;
     }
-    rotate(img, img, angle);
+    rotate(img, img, ROTATE_90_COUNTERCLOCKWISE);
     imwrite(outpath, img);
     }
     catch(...) {
