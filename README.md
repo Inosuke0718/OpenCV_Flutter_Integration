@@ -2,7 +2,9 @@
 OpenCVをFlutterで動かしてみました。
 ここではdart:ffiを使用。
 あくまでOpenCVをdart:ffiを用いて動かすことなので、ここではただ単に選択した画像を回転させるアプリケーションになります。
-![demo](https://github.com/Inosuke0718/OpenCV_Flutter_Integration/assets/63226783/debb2481-2195-44b4-81ca-1de2024de4a0)
+
+## demo画像
+<img src="https://github.com/Inosuke0718/OpenCV_Flutter_Integration/blob/test_camera/demo.png" width="250">
 
 ## dart:ffiとは
 dart:ffiはforeign function interface. すなわち外部関数インターフェースの略で、
